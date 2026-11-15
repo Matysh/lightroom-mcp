@@ -18,6 +18,8 @@ local MAX_SIZE = 2048
 -- here rather than as a bare server-side timeout.
 local TIMEOUT_SECONDS = 20
 local POLL_SECONDS = 0.05
+local LIBRARY_RETRY_SECONDS = 3
+local LIBRARY_RETRY_INTERVAL = 0.25
 -- Claude rejects images over 5 MB of base64 (3.75 MB raw). size is only a
 -- minimum, so a high-resolution raw can come back bigger than that.
 local MAX_BYTES = 3.5 * 1024 * 1024
@@ -70,7 +72,7 @@ local function renderPreview(args, batchDeadline, byteLimit, strictDimensions)
     -- request call itself takes time, so counting sleeps undercounts.
     local deadline = batchDeadline or (LrDate.currentTime() + TIMEOUT_SECONDS)
     byteLimit = byteLimit or MAX_BYTES
-    local function render(edge)
+    local function requestPreview(edge)
         -- requestJpegThumbnail is asynchronous and may call back before it
         -- returns. The request object must stay referenced until the callback
         -- fires, or Lightroom can cancel it.
@@ -92,6 +94,46 @@ local function renderPreview(args, batchDeadline, byteLimit, strictDimensions)
             error("Preview failed: " .. tostring(failure or "no image data"))
         end
         return data
+    end
+
+    local libraryRecoveryUsed = false
+    local function thumbLoadFailed(message)
+        return tostring(message):lower():find("preview failed: error loading thumb", 1, true) ~= nil
+    end
+
+    local function render(edge)
+        local ok, result = LrTasks.pcall(requestPreview, edge)
+        if ok then return result end
+        if libraryRecoveryUsed or not thumbLoadFailed(result) or LrDate.currentTime() >= deadline then
+            error(result, 0)
+        end
+        libraryRecoveryUsed = true
+
+        -- LrC can fail immediately from Develop even with Smart Previews.
+        -- Opening Library primes its JPEG-preview pipeline; the same request
+        -- then works back in Develop. Do this only on that specific failure,
+        -- under the shared UI lock, without changing Develop settings or
+        -- exporting (which can block on AI Updates Recommended).
+        local DevelopSession = require 'DevelopSession'
+        local LrApplicationView = import 'LrApplicationView'
+        Log.warn("Thumbnail load failed; warming Library previews for photo " .. tostring(args.photo_id))
+        return DevelopSession.run("preview recovery", catalog, true, function()
+            local retryDeadline = math.min(deadline, LrDate.currentTime() + LIBRARY_RETRY_SECONDS)
+            if LrApplicationView.getCurrentModuleName() ~= "library" then
+                LrApplicationView.switchToModule("library")
+            end
+            while LrDate.currentTime() < retryDeadline do
+                LrTasks.sleep(math.min(LIBRARY_RETRY_INTERVAL, retryDeadline - LrDate.currentTime()))
+                if LrDate.currentTime() >= deadline then break end
+                ok, result = LrTasks.pcall(requestPreview, edge)
+                if ok then
+                    Log.info("Library preview recovery succeeded for photo " .. tostring(args.photo_id))
+                    return result
+                end
+                if not thumbLoadFailed(result) then error(result, 0) end
+            end
+            error(result, 0)
+        end)
     end
 
     local function tooBig(data)

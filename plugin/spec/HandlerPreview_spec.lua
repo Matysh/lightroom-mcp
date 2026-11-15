@@ -22,14 +22,30 @@ local function fakeJpeg(width, height)
     return string.char(0xFF, 0xD8) .. app0 .. sof0
 end
 
-local function setup(photos, onSleep)
+local function setup(photos, onSleep, options)
+    options = options or {}
     local catalog = helper.fakeCatalog({ photos = photos or {} })
+    local view = { module = options.module or "develop", switches = {} }
+    local active, selected = photos and photos[1], photos or {}
+    catalog.getTargetPhoto = function() return active end
+    catalog.getTargetPhotos = function() return selected end
+    catalog.getActiveSources = function() return { "folder" } end
+    catalog.setSelectedPhotos = function(_, photo, selection) active, selected = photo, selection end
     -- now is a fake clock: each sleep advances it, and tests can jump it.
     local sleeps = { count = 0, now = 0 }
     helper.installImport({
         LrApplication = { activeCatalog = function() return catalog end },
         LrDate = { currentTime = function() return sleeps.now end },
         LrLogger = helper.defaultLrLogger(),
+        LrApplicationView = {
+            getCurrentModuleName = function() return view.module end,
+            switchToModule = function(module)
+                view.switches[#view.switches + 1] = module
+                view.module = module
+            end,
+        },
+        LrDevelopController = {},
+        LrSelection = { selectNone = function() active, selected = nil, {} end },
         LrStringUtils = { encodeBase64 = function(s) return "b64(" .. s .. ")" end },
         LrTasks = {
             pcall = pcall,
@@ -41,7 +57,9 @@ local function setup(photos, onSleep)
         },
     })
     package.loaded.HandlerPreview = nil
-    return catalog, require 'HandlerPreview', sleeps
+    package.loaded.DevelopSession = nil
+    view.selection = function() return active, selected end
+    return catalog, require 'HandlerPreview', sleeps, view
 end
 
 describe("HandlerPreview.getPhotoPreview", function()
@@ -207,6 +225,77 @@ describe("HandlerPreview.getPhotoPreview", function()
 
         assert.has_error(function() Handler.getPhotoPreview({ photo_id = "1" }) end,
             "Preview failed: file is offline")
+    end)
+
+    it("recovers a cold thumbnail through Library and restores Develop and selection", function()
+        local view
+        local photo = previewPhoto({ id = "1", path = "/a.nef" }, function(_, _, _, cb)
+            if view.module == "library" then cb(fakeJpeg()) else cb(nil, "error loading thumb") end
+        end)
+        local other = previewPhoto({ id = "2" }, function(_, _, _, cb) cb(fakeJpeg()) end)
+        local catalog, Handler, sleeps
+        catalog, Handler, sleeps, view = setup({ photo, other })
+        catalog.withWriteAccessDo = function() error("preview recovery must not write") end
+
+        local result = Handler.getPhotoPreview({ photo_id = "1" })
+
+        assert.are.equal(855, result.width)
+        assert.are.same({ "library", "develop" }, view.switches)
+        assert.are.equal("develop", view.module)
+        local active, selected = view.selection()
+        assert.are.equal(photo, active)
+        assert.are.same({ photo, other }, selected)
+        assert.are.equal(1, sleeps.count)
+    end)
+
+    it("does not switch modules when the first thumbnail succeeds", function()
+        local photo = previewPhoto({ id = "1" }, function(_, _, _, cb) cb(fakeJpeg()) end)
+        local _, Handler, _, view = setup({ photo })
+        Handler.getPhotoPreview({ photo_id = "1" })
+        assert.are.same({}, view.switches)
+    end)
+
+    it("bounds repeated thumbnail-load errors and restores the original module", function()
+        local photo = previewPhoto({ id = "1" }, function(_, _, _, cb) cb(nil, "error loading thumb") end)
+        local _, Handler, sleeps, view = setup({ photo })
+        assert.has_error(function() Handler.getPhotoPreview({ photo_id = "1" }) end,
+            "Preview failed: error loading thumb")
+        assert.are.same({ "library", "develop" }, view.switches)
+        assert.is_true(sleeps.now >= 3 and sleeps.now < 3.1)
+    end)
+
+    it("does not retry unrelated renderer errors or touch the UI", function()
+        local photo = previewPhoto({ id = "1" }, function(_, _, _, cb) cb(nil, "file is offline") end)
+        local _, Handler, sleeps, view = setup({ photo })
+        assert.has_error(function() Handler.getPhotoPreview({ photo_id = "1" }) end,
+            "Preview failed: file is offline")
+        assert.are.same({}, view.switches)
+        assert.are.equal(0, sleeps.count)
+    end)
+
+    it("refuses to switch Library while another Develop tool owns the UI", function()
+        local photo = previewPhoto({ id = "1" }, function(_, _, _, cb) cb(nil, "error loading thumb") end)
+        local catalog, Handler, _, view = setup({ photo })
+        local Session = require 'DevelopSession'
+        Session.run("mask edit", catalog, false, function()
+            assert.has_error(function() Handler.getPhotoPreview({ photo_id = "1" }) end,
+                "mask edit is already running; wait for it to finish, then call again")
+        end)
+        assert.are.same({}, view.switches)
+    end)
+
+    it("respects the batch deadline when Library recovery still cannot render", function()
+        local photo = previewPhoto({ id = "1" }, function(_, _, _, cb) cb(nil, "error loading thumb") end)
+        local photos = {}
+        for _ = 1, 10 do photos[#photos + 1] = photo end
+        local _, Handler, sleeps, view = setup({ photo })
+        local ids = {}
+        for i = 1, #photos do ids[i] = "1" end
+        local result = Handler.getPhotoPreviews({ photo_ids = ids })
+        assert.is_false(result.complete)
+        assert.is_true(#result.remaining_ids > 0)
+        assert.is_true(sleeps.now >= 20 and sleeps.now < 20.1)
+        assert.are.equal("develop", view.module)
     end)
 
     it("gives up when Lightroom never calls back", function()

@@ -205,6 +205,7 @@ describe('createMcpServer', () => {
     const instructions = pair.client.getInstructions();
     for (const phrase of [
       'Develop-driving calls run one at a time', 'a second call is rejected',
+      'error loading thumb', 'briefly open Library',
       'Lightroom Classic 15.6', 'process version 15.4', 'read back', 'roll back',
       'normalized 0 to 1', 'top-left', 'uncropped', 'y increasing down',
       'rotated or mirrored', 'crop does not move the origin',
