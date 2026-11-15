@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lightroom Reference Edit"
+  short_description: "RAW to AI reference through Lightroom edit passes"
+  default_prompt: "Use $lightroom-reference-edit to develop the selected RAW toward a generated lighting and color reference, saving a snapshot before edits."

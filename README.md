@@ -57,6 +57,12 @@ Some other things to try:
 
 ## Install (other AI tools)
 
+This fork includes [`lightroom-reference-edit`](skills/lightroom-reference-edit/SKILL.md),
+a shared Codex/Claude skill for a selected RAW: preview, pre-edit snapshot, generated lighting
+and color reference, then iterative Lightroom adjustments with read-back and fresh renders.
+See [local skill installation and usage](docs/LOCAL-SETUP.ru.md#скилл-проявка-raw-по-сгенерированному-референсу).
+Image generation must be available in the host, or the user can supply a reference.
+
 Already using Claude Code, Codex, Cursor, Windsurf, or VS Code? Pick your tool below. **All paths still end with the Lightroom step from the section above** — restart Lightroom and click **Start Server** in Plug-in Manager.
 
 The npm server requires Node.js 20 or later.
