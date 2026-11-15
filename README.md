@@ -1,5 +1,8 @@
 # Lightroom Classic MCP Server
 
+This fork can run directly from a local checkout in Codex, Claude Code, and Claude Desktop.
+See [the Windows setup and verification guide (Russian)](docs/LOCAL-SETUP.ru.md).
+
 Lets Claude (and other AI assistants) talk to your **Adobe Lightroom Classic** photo catalog. Search photos, set ratings, edit develop settings, manage collections, import/export — all by chatting.
 
 [![npm](https://img.shields.io/npm/v/@mskalski/lightroom-mcp.svg)](https://www.npmjs.com/package/@mskalski/lightroom-mcp)
