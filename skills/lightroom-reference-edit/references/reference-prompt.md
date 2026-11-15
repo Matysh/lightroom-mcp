@@ -1,6 +1,6 @@
 # Generating a useful photographic reference
 
-Use image-to-image generation with the baseline Lightroom render attached. A prompt without the input image produces a weak target for this workflow. Follow the host's image-generation instructions; in particular, inspect a local image before using it as an editing input.
+Use image-to-image generation with the baseline Lightroom working render attached (normally 768 px long edge). A prompt without the input image produces a weak target for this workflow. Follow the host's image-generation instructions; in particular, inspect a local image before using it as an editing input. Keep the generated master and use a small comparison copy for repeated light/color checks when resizing is available; inspect a larger image only for a specific detail question.
 
 Adapt this template to the actual scene and the user's requested look:
 

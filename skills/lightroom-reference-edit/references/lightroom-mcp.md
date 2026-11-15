@@ -12,27 +12,29 @@ These names follow the Automaat/Matysh Lightroom MCP bridge. Hosts may prefix to
 | Before snapshot | `create_develop_snapshot({photo_id, name, replace: false})` |
 | Confirm snapshot | `list_develop_snapshots({photo_id})` |
 | Restore snapshot | `apply_develop_snapshot({photo_id, snapshot_id})`, followed by settings/masks read-back and render |
-| Cached preview | `get_photo_preview({photo_id, size: "detail"})` |
+| Cached overview | `get_photo_preview({photo_id, size: "cull"})`; requested size is a minimum, not a maximum |
 
 Photo IDs belong to the current catalog. Metadata without `sections: ["developSettings"]` does **not** contain develop settings. Returned basic/tone fields use camelCase; groups such as `hsl`, `detail`, `crop` and `effects` contain SDK names. Preserve a complete returned baseline rather than assuming the read and write objects have identical shapes.
 
 ## Fresh renders and preview failures
 
-Export one JPEG at a time to an absolute, unique folder:
+Export one working JPEG at a time to an absolute, unique folder. Use 768 px long edge and quality 80 for light/color decisions:
 
 ```json
 {
   "photo_ids": ["PINNED_PHOTO_ID"],
   "destination": "ABSOLUTE_SESSION_DIRECTORY/pass-01",
   "format": "jpeg",
-  "quality": 90,
-  "width": 2048,
-  "height": 2048,
+  "quality": 80,
+  "width": 768,
+  "height": 768,
   "on_existing": "rename"
 }
 ```
 
 Replace the example ID/path with actual values and call `export_photos`. Width and height bound the image while preserving its aspect ratio. Keep the same settings for every comparison. Inspect the reported result and actual output file; do not assume that an existing file is the result of the latest call. Save previews that are returned only inline or as base64 using the host's supported file mechanism, without printing the encoded data into the conversation.
+
+Cached preview sizes request a **minimum** edge: even `cull` or a small numeric request can return a much larger cached image. Use export to enforce the working size; reserve `detail`/larger region previews for a concrete detail check. After choosing the final edit, override width/height to 2048 and quality to 90 for one final render. A 768 px image has about seven times fewer pixels than a 2048 px image of the same aspect ratio. This reduces image payload, but does not guarantee equivalent savings in RAW rendering, generation or connection time.
 
 If `get_photo_preview` returns `error loading thumb`, switch to export instead of repeatedly trying different thumbnail sizes. Cached previews can also lag behind saved develop settings; use a fresh export to judge each pass. An export may add a history entry even when sliders are unchanged.
 
